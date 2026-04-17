@@ -1,22 +1,20 @@
-# Core
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
-sqlalchemy[asyncio]
-asyncpg
-alembic
-python-dotenv
-
 # LangChain + LLM
 langchain>=0.3.0
-langchain-anthropic>=0.3.0
-langchain-google-genai>=0.2.0
-langchain-openai>=0.2.0
 langchain-core>=0.3.0
+langchain-groq>=0.2.0
+langchain-openai>=0.2.0      # kept for OpenRouter compatibility
 
-# Streaming
-sse-starlette
+# Discord
+discord.py>=2.3.0
+
+# Tools
+duckduckgo-search>=6.0.0
+notion-client>=2.0.0
+
+# Config
+pydantic
+pydantic-settings
+python-dotenv
 
 # Logging
 rich
@@ -25,4 +23,3 @@ rich
 pytest
 pytest-asyncio
 pytest-cov
-httpx
