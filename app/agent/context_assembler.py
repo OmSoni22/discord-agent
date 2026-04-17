@@ -6,12 +6,12 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.threads.models import Message
+from langchain_core.messages import BaseMessage
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-# Path to config files (relative to project root)
+# Path to config files (relative to this file)
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 
 
@@ -21,16 +21,19 @@ class ContextObject:
     system_prompt: str
     rules: str
     tool_specs: str
-    chat_history: list[Message]
+    chat_history: list[BaseMessage]   # Already-converted LangChain messages
     user_query: str
-    role: str = "primary"  # Reserved for multi-agent (always "primary" in v1)
+    role: str = "primary"             # Reserved for multi-agent (always "primary" in v1)
 
 
 class ContextAssembler:
     """Assembles a complete ContextObject from all sources.
 
-    Reads static files once (system prompt, rules), generates tool specs
-    from the registry, and combines with thread history + current query.
+    Reads static config files (system prompt, rules), generates tool specs
+    from the registry, and combines with pre-built history + current query.
+
+    History is passed in as a list[BaseMessage] — the Discord layer is
+    responsible for converting Discord messages to LangChain format.
     """
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
@@ -60,28 +63,27 @@ class ContextAssembler:
 
     def assemble(
         self,
-        thread_id: str,
-        messages: list[Message],
+        messages: list[BaseMessage],
         query: str,
         role: str = "primary",
     ) -> ContextObject:
         """Assemble the full context for a single LLM turn.
 
         Args:
-            thread_id: Current thread ID
-            messages: Chat history from the thread
-            query: The user's current query
-            role: Agent role (reserved for multi-agent, default "primary")
+            messages: Prior conversation history as LangChain BaseMessages
+                      (converted by the Discord layer from channel.history())
+            query:    The current user message text
+            role:     Agent role — reserved for multi-agent, default "primary"
 
         Returns:
             ContextObject ready for PromptBuilder
         """
-        logger.info("Assembling context for thread %s", thread_id)
+        logger.info("Assembling context | history_len=%d | query=%s", len(messages), query[:80])
 
         tool_specs = self._tool_registry.generate_specs()
         system_prompt_template = self._get_system_prompt_template()
 
-        # Inject tool specs into system prompt template
+        # Inject tool specs into system prompt template placeholder
         system_prompt = system_prompt_template.replace("{tool_specs}", tool_specs)
 
         return ContextObject(

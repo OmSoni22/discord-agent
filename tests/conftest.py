@@ -1,20 +1,21 @@
-"""Pytest configuration and fixtures for the agentic AI system tests."""
+"""Pytest configuration and shared fixtures."""
 
 import pytest
+from langchain_core.messages import HumanMessage, AIMessage
+
 from app.tools.registry import ToolRegistry
-from app.tools.calculator import CalculatorTool
-from app.tools.file_reader import FileReaderTool
+from app.tools.web_search_tool import WebSearchTool
+from app.tools.notion_tool import NotionTool
 from app.agent.context_assembler import ContextAssembler
 from app.agent.prompt_builder import PromptBuilder
-from app.threads.models import Message
 
 
 @pytest.fixture
 def tool_registry():
-    """Fresh ToolRegistry with built-in tools registered."""
+    """Fresh ToolRegistry with production tools registered."""
     registry = ToolRegistry()
-    registry.register(CalculatorTool())
-    registry.register(FileReaderTool())
+    registry.register(WebSearchTool())
+    registry.register(NotionTool())
     return registry
 
 
@@ -26,7 +27,7 @@ def empty_registry():
 
 @pytest.fixture
 def context_assembler(tool_registry):
-    """ContextAssembler with tools registered."""
+    """ContextAssembler with production tools registered."""
     return ContextAssembler(tool_registry)
 
 
@@ -38,18 +39,8 @@ def prompt_builder():
 
 @pytest.fixture
 def sample_messages():
-    """Sample Message objects for testing (mimicking DB rows)."""
+    """Two LangChain BaseMessages representing prior conversation history."""
     return [
-        Message(
-            id="msg-1",
-            thread_id="thread-1",
-            role="human",
-            content="Hello",
-        ),
-        Message(
-            id="msg-2",
-            thread_id="thread-1",
-            role="ai",
-            content="Hi there!",
-        ),
+        HumanMessage(content="Hello"),
+        AIMessage(content="Hi there!"),
     ]
