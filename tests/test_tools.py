@@ -1,7 +1,8 @@
-"""Tests for built-in tools (Calculator, FileReader)."""
+"""Tests for built-in tools (Calculator, FileReader, WebSearch)."""
 
 import os
 import pytest
+from unittest.mock import patch, MagicMock
 from app.tools.calculator import CalculatorTool
 from app.tools.file_reader import FileReaderTool
 
@@ -84,3 +85,61 @@ class TestFileReaderTool:
         result = self.tool._run(file_path)
         assert "Error" in result
         assert "too large" in result.lower()
+
+
+# --- WebSearchTool Tests ---
+
+from app.tools.web_search_tool import WebSearchTool
+
+
+class TestWebSearchTool:
+    """Tests for the DuckDuckGo web search tool."""
+
+    def test_run_returns_formatted_results(self):
+        """_run() formats DDG results as a numbered list."""
+        mock_results = [
+            {"title": "Python Docs", "href": "https://python.org", "body": "Official Python documentation."},
+            {"title": "PyPI", "href": "https://pypi.org", "body": "Python package index."},
+        ]
+        tool = WebSearchTool()
+        with patch("app.tools.web_search_tool.DDGS") as MockDDGS:
+            mock_ddgs_instance = MagicMock()
+            mock_ddgs_instance.text.return_value = mock_results
+            MockDDGS.return_value.__enter__ = MagicMock(return_value=mock_ddgs_instance)
+            MockDDGS.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = tool._run("Python documentation")
+
+        assert "1. Python Docs" in result
+        assert "https://python.org" in result
+        assert "Official Python documentation." in result
+        assert "2. PyPI" in result
+
+    def test_run_no_results(self):
+        """_run() returns a clear message when no results are found."""
+        tool = WebSearchTool()
+        with patch("app.tools.web_search_tool.DDGS") as MockDDGS:
+            mock_ddgs_instance = MagicMock()
+            mock_ddgs_instance.text.return_value = []
+            MockDDGS.return_value.__enter__ = MagicMock(return_value=mock_ddgs_instance)
+            MockDDGS.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = tool._run("xyzzy nonexistent query")
+
+        assert "No results found" in result
+
+    def test_run_handles_exception(self):
+        """_run() returns an error string rather than raising on failure."""
+        tool = WebSearchTool()
+        with patch("app.tools.web_search_tool.DDGS") as MockDDGS:
+            MockDDGS.side_effect = Exception("Network error")
+            result = tool._run("any query")
+
+        assert "Web search failed" in result
+        assert "Network error" in result
+
+    def test_tool_name_and_description(self):
+        """Tool has correct name and non-empty description."""
+        tool = WebSearchTool()
+        assert tool.name == "web_search"
+        assert len(tool.description) > 10
