@@ -1,4 +1,4 @@
-"""Tests for built-in tools (Calculator, FileReader, WebSearch)."""
+"""Tests for built-in tools (Calculator, FileReader, WebSearch, Notion)."""
 
 import os
 import pytest
@@ -142,4 +142,148 @@ class TestWebSearchTool:
         """Tool has correct name and non-empty description."""
         tool = WebSearchTool()
         assert tool.name == "web_search"
+        assert len(tool.description) > 10
+
+
+# --- NotionTool Tests ---
+
+from app.tools.notion_tool import NotionTool
+
+
+class TestNotionTool:
+    """Tests for the Notion read/write tool."""
+
+    def _make_tool(self):
+        return NotionTool()
+
+    def test_search_returns_results(self):
+        """search action formats page titles and IDs."""
+        tool = self._make_tool()
+        mock_client = MagicMock()
+        mock_client.search.return_value = {
+            "results": [
+                {
+                    "object": "page",
+                    "id": "abc-123",
+                    "url": "https://notion.so/abc-123",
+                    "properties": {
+                        "title": {
+                            "title": [{"plain_text": "My Project"}]
+                        }
+                    },
+                }
+            ]
+        }
+        with patch.object(tool, "_get_client", return_value=mock_client):
+            result = tool._run(action="search", query="My Project")
+
+        assert "My Project" in result
+        assert "abc-123" in result
+
+    def test_search_no_results(self):
+        """search action handles empty results."""
+        tool = self._make_tool()
+        mock_client = MagicMock()
+        mock_client.search.return_value = {"results": []}
+        with patch.object(tool, "_get_client", return_value=mock_client):
+            result = tool._run(action="search", query="nonexistent page")
+
+        assert "No Notion pages found" in result
+
+    def test_search_requires_query(self):
+        """search action returns error when query is empty."""
+        tool = self._make_tool()
+        result = tool._run(action="search", query="")
+        assert "requires a query" in result
+
+    def test_get_page_returns_content(self):
+        """get_page fetches title and block text."""
+        tool = self._make_tool()
+        mock_client = MagicMock()
+        mock_client.pages.retrieve.return_value = {
+            "id": "page-999",
+            "properties": {
+                "title": {"title": [{"plain_text": "Test Page"}]}
+            },
+        }
+        mock_client.blocks.children.list.return_value = {
+            "results": [
+                {
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"plain_text": "Hello world"}]
+                    },
+                }
+            ]
+        }
+        with patch.object(tool, "_get_client", return_value=mock_client):
+            result = tool._run(action="get_page", page_id="page-999")
+
+        assert "Test Page" in result
+        assert "Hello world" in result
+
+    def test_get_page_requires_page_id(self):
+        """get_page returns error when page_id is empty."""
+        tool = self._make_tool()
+        result = tool._run(action="get_page", page_id="")
+        assert "requires page_id" in result
+
+    def test_create_page_success(self):
+        """create_page returns new page ID and URL."""
+        tool = self._make_tool()
+        mock_client = MagicMock()
+        mock_client.pages.create.return_value = {
+            "id": "new-page-id",
+            "url": "https://notion.so/new-page-id",
+        }
+        with patch.object(tool, "_get_client", return_value=mock_client):
+            result = tool._run(
+                action="create_page",
+                title="New Page",
+                content="Some content",
+                parent_page_id="parent-123",
+            )
+
+        assert "created successfully" in result
+        assert "new-page-id" in result
+
+    def test_create_page_requires_title(self):
+        """create_page returns error when title is missing."""
+        tool = self._make_tool()
+        result = tool._run(action="create_page", title="", content="text", parent_page_id="pid")
+        assert "requires a title" in result
+
+    def test_create_page_requires_content(self):
+        """create_page returns error when content is missing."""
+        tool = self._make_tool()
+        result = tool._run(action="create_page", title="T", content="", parent_page_id="pid")
+        assert "requires content" in result
+
+    def test_append_blocks_success(self):
+        """append_blocks confirms successful append."""
+        tool = self._make_tool()
+        mock_client = MagicMock()
+        with patch.object(tool, "_get_client", return_value=mock_client):
+            result = tool._run(action="append_blocks", page_id="pg-1", content="New paragraph")
+
+        assert "appended" in result
+        assert "pg-1" in result
+        mock_client.blocks.children.append.assert_called_once()
+
+    def test_append_blocks_requires_page_id(self):
+        """append_blocks returns error when page_id is missing."""
+        tool = self._make_tool()
+        result = tool._run(action="append_blocks", page_id="", content="text")
+        assert "requires page_id" in result
+
+    def test_unknown_action_returns_error(self):
+        """Unknown action returns a clear error message."""
+        tool = self._make_tool()
+        result = tool._run(action="delete_everything")
+        assert "Unknown action" in result
+
+    def test_tool_name_and_description(self):
+        """Tool has correct name and non-empty description."""
+        tool = self._make_tool()
+        assert tool.name == "notion"
         assert len(tool.description) > 10
