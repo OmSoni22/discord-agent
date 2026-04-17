@@ -1,13 +1,12 @@
-"""Prompt Builder — converts ContextObject into LangChain message format."""
+"""Prompt Builder — converts a ContextObject into LangChain message format."""
 
 from __future__ import annotations
 
 import logging
 
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage, BaseMessage
+from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage
 
 from app.agent.context_assembler import ContextObject
-from app.threads.models import Message
 
 logger = logging.getLogger(__name__)
 
@@ -15,52 +14,35 @@ logger = logging.getLogger(__name__)
 class PromptBuilder:
     """Converts a ContextObject into a list of LangChain BaseMessage objects.
 
-    The system prompt (identity + rules + tool specs) is placed first as a
-    SystemMessage. The SYSTEM_PROMPT_DYNAMIC_BOUNDARY splits static vs dynamic
-    content so prompt caching works correctly.
+    Layout:
+    [0]   SystemMessage  — system prompt + rules (static, cache-friendly)
+    [1..N-1] BaseMessage — prior conversation history (already LangChain format)
+    [N]   HumanMessage  — current user query
     """
 
     def build(self, context: ContextObject) -> list[BaseMessage]:
         """Build the message list for the LLM.
 
         Args:
-            context: Assembled ContextObject
+            context: Assembled ContextObject from ContextAssembler
 
         Returns:
-            List of LangChain messages ready for the model
+            Ordered list of LangChain messages ready for the model
         """
         messages: list[BaseMessage] = []
 
-        # 1. System message (static part — cached by the LLM provider)
+        # 1. System message (static — cache-friendly for LLM providers)
         system_content = context.system_prompt
         if context.rules:
             system_content += f"\n\nRules:\n{context.rules}"
 
         messages.append(SystemMessage(content=system_content))
 
-        # 2. Chat history (dynamic part — after the boundary)
-        for msg in context.chat_history:
-            messages.append(self._convert_message(msg))
+        # 2. Conversation history (already BaseMessage objects from Discord)
+        messages.extend(context.chat_history)
 
         # 3. Current user query
         messages.append(HumanMessage(content=context.user_query))
 
         logger.debug("Built %d messages for LLM", len(messages))
         return messages
-
-    @staticmethod
-    def _convert_message(msg: Message) -> BaseMessage:
-        """Convert a DB Message to a LangChain BaseMessage."""
-        if msg.role == "human":
-            return HumanMessage(content=msg.content)
-        elif msg.role == "ai":
-            return AIMessage(content=msg.content)
-        elif msg.role == "tool":
-            return ToolMessage(
-                content=msg.content,
-                tool_call_id=msg.tool_call_id or "unknown",
-            )
-        elif msg.role == "system":
-            return SystemMessage(content=msg.content)
-        else:
-            return HumanMessage(content=msg.content)
