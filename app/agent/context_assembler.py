@@ -83,8 +83,12 @@ class ContextAssembler:
         tool_specs = self._tool_registry.generate_specs()
         system_prompt_template = self._get_system_prompt_template()
 
-        # Inject tool specs into system prompt template placeholder
         system_prompt = system_prompt_template.replace("{tool_specs}", tool_specs)
+
+        # Inject dynamic date and time (UTC)
+        from datetime import datetime, timezone
+        current_time = datetime.now(timezone.utc).strftime("%A, %Y-%m-%d %H:%M:%S UTC")
+        system_prompt += f"\n\nCurrent Date and Time: {current_time}"
 
         return ContextObject(
             system_prompt=system_prompt,
