@@ -16,19 +16,27 @@ logger = logging.getLogger(__name__)
 class NotionInput(BaseModel):
     """Input schema for the Notion tool."""
 
-    action: Literal["search", "get_page", "create_page", "append_blocks"] = Field(
+    action: Literal[
+        "search", 
+        "get_page", 
+        "create_page", 
+        "append_blocks", 
+        "update_properties", 
+        "update_block", 
+        "replace_content"
+    ] = Field(
         description=(
-            "Action to perform: 'search' (find pages), 'get_page' (read content), "
-            "'create_page' (new page), or 'append_blocks' (add text)."
+            "Action to perform: 'search', 'get_page', 'create_page', 'append_blocks', "
+            "'update_properties', 'update_block', or 'replace_content'."
         )
     )
     query: str = Field(default="", description="Search query — required for 'search'")
     page_id: str = Field(
-        default="", description="Notion page ID — required for 'get_page' and 'append_blocks'"
+        default="", description="Notion page ID — required for page-level actions"
     )
-    title: str = Field(default="", description="Page title — required for 'create_page'")
+    title: str = Field(default="", description="Page title — required for 'create_page' and 'update_properties'")
     content: str = Field(
-        default="", description="Text content — required for 'create_page' and 'append_blocks'"
+        default="", description="Text content — required for creating/updating blocks or replacing content"
     )
     parent_page_id: str = Field(
         default="",
@@ -36,6 +44,9 @@ class NotionInput(BaseModel):
             "Parent page ID for 'create_page'. "
             "Falls back to NOTION_DEFAULT_PAGE_ID env var if not provided."
         ),
+    )
+    block_id: str = Field(
+        default="", description="Notion block ID — required for 'update_block'"
     )
 
 
@@ -52,10 +63,9 @@ class NotionTool(BaseTool):
     name: str = "notion"
     description: str = (
         "Interact with Notion pages. "
-        "Actions: search (find pages by query), "
-        "get_page (read page content — needs page_id), "
-        "create_page (create new page — needs title + content), "
-        "append_blocks (add content to existing page — needs page_id + content)."
+        "Actions: search, get_page, create_page, append_blocks, "
+        "update_properties (change title), update_block (change specific text element), "
+        "replace_content (replace whole page)."
     )
     args_schema: Type[BaseModel] = NotionInput
 
@@ -72,6 +82,7 @@ class NotionTool(BaseTool):
         title: str = "",
         content: str = "",
         parent_page_id: str = "",
+        block_id: str = "",
     ) -> str:
         """Dispatch the requested Notion action."""
         logger.info("Notion action: %s", action)
@@ -85,10 +96,17 @@ class NotionTool(BaseTool):
                 return self._create_page(notion, title, content, parent_page_id)
             elif action == "append_blocks":
                 return self._append_blocks(notion, page_id, content)
+            elif action == "update_properties":
+                return self._update_properties(notion, page_id, title)
+            elif action == "update_block":
+                return self._update_block(notion, block_id, content)
+            elif action == "replace_content":
+                return self._replace_content(notion, page_id, content)
             else:
                 return (
                     f"Error: Unknown action '{action}'. "
-                    "Valid actions: search, get_page, create_page, append_blocks."
+                    "Valid actions: search, get_page, create_page, append_blocks, "
+                    "update_properties, update_block, replace_content."
                 )
         except Exception as e:
             error_msg = f"Notion error ({action}): {e}"
@@ -103,11 +121,12 @@ class NotionTool(BaseTool):
         title: str = "",
         content: str = "",
         parent_page_id: str = "",
+        block_id: str = "",
     ) -> str:
         """Async version — runs sync implementation in a thread pool."""
         import asyncio
         return await asyncio.to_thread(
-            self._run, action, query, page_id, title, content, parent_page_id
+            self._run, action, query, page_id, title, content, parent_page_id, block_id
         )
 
     # ── private action implementations ──────────────────────────────────
@@ -146,8 +165,14 @@ class NotionTool(BaseTool):
         blocks_resp = notion.blocks.children.list(block_id=page_id)
         blocks = blocks_resp.get("results", [])
 
-        content_lines = [self._extract_block_text(b) for b in blocks]
-        content = "\n".join(line for line in content_lines if line) or "(empty page)"
+        content_lines = []
+        for b in blocks:
+            text = self._extract_block_text(b)
+            bid = b.get("id", "unknown-id")
+            if text:
+                content_lines.append(f"[Block ID: {bid}] {text}")
+
+        content = "\n".join(content_lines) or "(empty page)"
 
         return f"Page: {title_val or '(Untitled)'}\nID: {page_id}\n\n{content}"
 
@@ -207,6 +232,69 @@ class NotionTool(BaseTool):
             ],
         )
         return f"Content appended to page {page_id} successfully."
+
+    def _update_properties(self, notion, page_id: str, title: str) -> str:
+        if not page_id:
+            return "Error: 'update_properties' requires page_id."
+        if not title:
+            return "Error: 'update_properties' currently requires a title."
+
+        notion.pages.update(
+            page_id=page_id,
+            properties={
+                "title": {
+                    "title": [{"type": "text", "text": {"content": title}}]
+                }
+            }
+        )
+        return f"Page {page_id} properties updated successfully."
+
+    def _update_block(self, notion, block_id: str, content: str) -> str:
+        if not block_id:
+            return "Error: 'update_block' requires block_id."
+        if not content:
+            return "Error: 'update_block' requires content."
+
+        notion.blocks.update(
+            block_id=block_id,
+            paragraph={
+                "rich_text": [{"type": "text", "text": {"content": content}}]
+            }
+        )
+        return f"Block {block_id} content updated successfully."
+
+    def _replace_content(self, notion, page_id: str, content: str) -> str:
+        if not page_id:
+            return "Error: 'replace_content' requires page_id."
+        if not content:
+            return "Error: 'replace_content' requires content."
+
+        # Fetch all children blocks
+        blocks_resp = notion.blocks.children.list(block_id=page_id)
+        blocks = blocks_resp.get("results", [])
+
+        # Delete existing blocks
+        for block in blocks:
+            try:
+                notion.blocks.delete(block_id=block["id"])
+            except Exception as e:
+                logger.warning("Could not delete block %s during replace operation: %s", block["id"], e)
+
+        # Append new content
+        notion.blocks.children.append(
+            block_id=page_id,
+            children=[
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": content}}]
+                    },
+                }
+            ],
+        )
+        
+        return f"Content of page {page_id} successfully replaced."
 
     # ── helpers ──────────────────────────────────────────────────────────
 

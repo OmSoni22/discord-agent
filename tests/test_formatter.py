@@ -1,9 +1,8 @@
 """Tests for the Discord message formatter."""
 
 import pytest
-from app.discord_bot.formatter import format_response
-
-LIMIT = 2000
+from app.discord_bot.formatter import format_response, DISCORD_MAX_LENGTH
+LIMIT = DISCORD_MAX_LENGTH
 
 
 class TestFormatResponse:
