@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Type
+from typing import Type, Literal
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -16,13 +16,10 @@ logger = logging.getLogger(__name__)
 class NotionInput(BaseModel):
     """Input schema for the Notion tool."""
 
-    action: str = Field(
+    action: Literal["search", "get_page", "create_page", "append_blocks"] = Field(
         description=(
-            "Action to perform. One of: "
-            "'search' (find pages by query), "
-            "'get_page' (read a page's full content), "
-            "'create_page' (create a new page with title and content), "
-            "'append_blocks' (add text to an existing page)."
+            "Action to perform: 'search' (find pages), 'get_page' (read content), "
+            "'create_page' (new page), or 'append_blocks' (add text)."
         )
     )
     query: str = Field(default="", description="Search query — required for 'search'")

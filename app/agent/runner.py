@@ -36,15 +36,36 @@ class AgentRunner:
         self._context_assembler = context_assembler
         self._prompt_builder = prompt_builder
 
-        model_kwargs: dict[str, Any] = {"streaming": True}
+        model_kwargs: dict[str, Any] = {}
         if settings.max_tokens:
             model_kwargs["max_tokens"] = settings.max_tokens
         if settings.api_key:
             model_kwargs["api_key"] = settings.api_key
+        
+        provider = settings.model_provider
+        base_url = settings.llm_base_url
+
+        # Helper for OpenRouter
+        if provider == "openrouter":
+            provider = "openai"
+            base_url = base_url or "https://openrouter.ai/api/v1"
+            # Add OpenRouter specific headers as per https://openrouter.ai/docs/
+            model_kwargs["default_headers"] = {
+                "HTTP-Referer": "https://github.com/OmSoni22/discord-agent",
+                "X-OpenRouter-Title": settings.app_name,
+            }
+
+        if base_url:
+            model_kwargs["base_url"] = base_url
+
+        # Helper for Gemini
+        if provider == "google_genai":
+            if settings.api_key:
+                model_kwargs["google_api_key"] = settings.api_key
 
         self._llm = init_chat_model(
             model=settings.model_name,
-            model_provider=settings.model_provider,
+            model_provider=provider,
             **model_kwargs,
         )
 
@@ -64,7 +85,7 @@ class AgentRunner:
         # Bind tools to the LLM
         tools = self._tool_registry.get_all()
         tools_by_name: dict[str, BaseTool] = {t.name: t for t in tools}
-        llm_with_tools = self._llm.bind_tools(tools) if tools else self._llm
+        llm_with_tools = self._llm.bind_tools(tools, tool_choice="auto") if tools else self._llm
 
         # Assemble context and build message list
         context = self._context_assembler.assemble(history, query)
@@ -76,23 +97,24 @@ class AgentRunner:
         for iteration in range(1, settings.max_iterations + 1):
             logger.info("ReAct iteration %d", iteration)
 
-            full_content = ""
-            tool_calls: list[dict] = []
+            # Use ainvoke for stable tool-calling with Groq
+            response_msg = await llm_with_tools.ainvoke(messages)
+            
+            # Ensure content is a string (some providers return a list of parts)
+            raw_content = response_msg.content
+            if isinstance(raw_content, list):
+                full_content = ""
+                for part in raw_content:
+                    if isinstance(part, str):
+                        full_content += part
+                    elif isinstance(part, dict) and "text" in part:
+                        full_content += part["text"]
+                    else:
+                        full_content += str(part)
+            else:
+                full_content = str(raw_content or "")
 
-            # Stream LLM response
-            async for chunk in llm_with_tools.astream(messages):
-                # Collect text content
-                if chunk.content:
-                    if isinstance(chunk.content, str):
-                        full_content += chunk.content
-                    elif isinstance(chunk.content, list):
-                        for block in chunk.content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                full_content += block.get("text", "")
-
-                # Collect tool calls (fully-resolved chunks)
-                if hasattr(chunk, "tool_calls") and chunk.tool_calls:
-                    tool_calls.extend(chunk.tool_calls)
+            tool_calls = getattr(response_msg, "tool_calls", [])
 
             # No tool calls → final answer
             if not tool_calls:
@@ -100,9 +122,8 @@ class AgentRunner:
                 logger.info("Agent finished in %d iteration(s)", iteration)
                 break
 
-            # Append AI message with tool call intent
-            ai_message = AIMessage(content=full_content, tool_calls=tool_calls)
-            messages.append(ai_message)
+            # Append AI message with tool calls to history
+            messages.append(response_msg)
 
             # Execute each tool call
             for tool_call in tool_calls:
@@ -121,6 +142,10 @@ class AgentRunner:
                     try:
                         result = await tool.ainvoke(tool_args)
                         tool_output = str(result)
+                        logger.info(
+                            "Tool response: %s",
+                            (tool_output[:150] + "...") if len(tool_output) > 150 else tool_output
+                        )
                     except Exception as e:
                         tool_output = f"Error executing {tool_name}: {e}"
                         logger.error("Tool execution failed: %s — %s", tool_name, e)
@@ -136,7 +161,7 @@ class AgentRunner:
             # Max iterations reached — return whatever we last generated
             logger.warning("Max iterations (%d) reached", settings.max_iterations)
             final_response = (
-                full_content
+                str(full_content)
                 + "\n\n*(Reached maximum reasoning steps — this is my best answer so far.)*"
             )
 

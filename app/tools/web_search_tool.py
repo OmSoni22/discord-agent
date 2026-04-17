@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Type
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -27,11 +27,7 @@ class WebSearchTool(BaseTool):
     """
 
     name: str = "web_search"
-    description: str = (
-        "Search the web for current information. Use when you need facts, "
-        "news, or anything requiring internet lookup. Input: a search query string. "
-        "Returns top 5 results with title, URL, and snippet."
-    )
+    description: str = "Search the web for current information, facts, and news."
     args_schema: Type[BaseModel] = WebSearchInput
 
     def _run(self, query: str) -> str:
@@ -51,7 +47,9 @@ class WebSearchTool(BaseTool):
                 body = r.get("body", "")
                 lines.append(f"{i}. {title}\n   URL: {url}\n   {body}")
 
-            return "\n\n".join(lines)
+            results_str = "\n\n".join(lines)
+            logger.info("Search results summary: %s", results_str[:150] + "..." if len(results_str) > 150 else results_str)
+            return results_str
 
         except Exception as e:
             error_msg = f"Web search failed: {e}"

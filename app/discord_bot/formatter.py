@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-DISCORD_MAX_LENGTH = 2000
+DISCORD_MAX_LENGTH = 1950
 
 
 def format_response(response: str) -> list[str]:

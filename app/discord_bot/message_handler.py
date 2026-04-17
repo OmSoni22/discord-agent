@@ -81,7 +81,10 @@ async def handle_message(
 
     # ── Send response (split if > 2000 chars) ─────────────────────────────────
     chunks = format_response(response)
-    for chunk in chunks:
+    logger.info("Sending response | total_chars=%d | chunks=%d", len(response), len(chunks))
+    
+    for i, chunk in enumerate(chunks, 1):
+        logger.debug("Sending chunk %d/%d | length=%d", i, len(chunks), len(chunk))
         await message.channel.send(chunk)
 
-    logger.info("Response sent | %d chunk(s) | total_chars=%d", len(chunks), len(response))
+    logger.info("All chunks sent successfully")

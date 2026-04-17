@@ -3,6 +3,7 @@ langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-groq>=0.2.0
 langchain-openai>=0.2.0      # kept for OpenRouter compatibility
+langchain-google-genai>=2.0.0
 
 # Discord
 discord.py>=2.3.0

@@ -27,20 +27,16 @@ def _make_runner(tool_registry=None):
 
 @pytest.mark.asyncio
 async def test_run_returns_string():
-    """run() returns a string, not a generator."""
+    """run() returns a string."""
     runner = _make_runner()
 
-    # Mock the LLM to return a simple text chunk with no tool calls
-    mock_chunk = MagicMock()
-    mock_chunk.content = "42"
-    mock_chunk.tool_calls = []
-    mock_chunk.tool_call_chunks = []
-
-    async def fake_astream(messages):
-        yield mock_chunk
+    # Mock the LLM to return an AIMessage with no tool calls
+    mock_response = MagicMock(spec=AIMessage)
+    mock_response.content = "42"
+    mock_response.tool_calls = []
 
     runner._llm.bind_tools = MagicMock(return_value=runner._llm)
-    runner._llm.astream = fake_astream
+    runner._llm.ainvoke = AsyncMock(return_value=mock_response)
 
     result = await runner.run(query="What is 6×7?", history=[])
     assert isinstance(result, str)
@@ -52,16 +48,12 @@ async def test_run_uses_history():
     """run() passes history through to the prompt builder."""
     runner = _make_runner()
 
-    mock_chunk = MagicMock()
-    mock_chunk.content = "I remember."
-    mock_chunk.tool_calls = []
-    mock_chunk.tool_call_chunks = []
-
-    async def fake_astream(messages):
-        yield mock_chunk
+    mock_response = MagicMock(spec=AIMessage)
+    mock_response.content = "I remember."
+    mock_response.tool_calls = []
 
     runner._llm.bind_tools = MagicMock(return_value=runner._llm)
-    runner._llm.astream = fake_astream
+    runner._llm.ainvoke = AsyncMock(return_value=mock_response)
 
     history = [HumanMessage(content="Prev"), AIMessage(content="OK")]
     result = await runner.run(query="Follow up", history=history)
@@ -78,16 +70,12 @@ async def test_run_max_iterations_returns_partial():
     runner = _make_runner()
 
     # Simulate LLM always returning a tool call (forces max iterations)
-    mock_chunk = MagicMock()
-    mock_chunk.content = "Thinking..."
-    mock_chunk.tool_calls = [{"name": "unknown_tool", "args": {}, "id": "tc1"}]
-    mock_chunk.tool_call_chunks = []
-
-    async def fake_astream(messages):
-        yield mock_chunk
+    mock_response = MagicMock(spec=AIMessage)
+    mock_response.content = "Thinking..."
+    mock_response.tool_calls = [{"name": "unknown_tool", "args": {}, "id": "tc1"}]
 
     runner._llm.bind_tools = MagicMock(return_value=runner._llm)
-    runner._llm.astream = fake_astream
+    runner._llm.ainvoke = AsyncMock(return_value=mock_response)
 
     try:
         result = await runner.run(query="Do something", history=[])

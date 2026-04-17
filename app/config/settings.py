@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     # LLM Configuration
     model_provider: str = "groq"
     model_name: str = "llama-3.3-70b-versatile"
-    api_key: str = ""            # Groq API key (or OpenRouter key if switching)
+    api_key: str = ""                # API key for the provider
+    llm_base_url: str | None = None  # Base URL (e.g., https://openrouter.ai/api/v1)
     max_tokens: int = 4096
 
     # Agent loop guards
